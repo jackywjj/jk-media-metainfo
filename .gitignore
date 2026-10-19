@@ -1,0 +1,32 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local credentials (keep shareable templates)
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Generated media, reports, and local scratch files
+/output/
+/reports/
+/tmp/
+*.log
+
+# Editor-local settings
+.idea/
+.vscode/
+*.swp
+*.swo
+/IMPLEMENTATION-STATUS.md

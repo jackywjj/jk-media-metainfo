@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "inputs": ["./media/illustration.png"],
+  "output_dir": "./output",
+  "storage": "embedded",
+  "set": {
+    "title": "示例插画标题",
+    "creator": ["由用户确认的创作者"],
+    "project": "示例项目",
+    "content_kind": "illustration",
+    "people_scope": "fictional",
+    "fictional_characters": ["虚构角色名"],
+    "source_url": "https://example.com/source",
+    "description": "动漫插画，非真人拍摄。"
+  },
+  "remove": [],
+  "review": {
+    "kind": "illustration",
+    "people_scope": "fictional",
+    "basis": "user",
+    "evidence": "示例：使用前替换成实际查看画面或来源确认的依据。",
+    "input_sha256": "从实际文件precheck结果中复制SHA256"
+  }
+}

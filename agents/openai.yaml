@@ -1,0 +1,4 @@
+interface:
+  display_name: "媒体元数据编辑"
+  short_description: "修改图片或视频元数据，支持目录批量；列出全部字段并经用户确认后写入"
+  default_prompt: "使用 $jk-media-metainfo 修改我的图片或视频元数据。先检查环境并安装缺失的必要工具，再列出全部字段的当前值、操作和目标值，等我确认后写入副本。"
