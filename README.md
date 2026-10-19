@@ -138,6 +138,22 @@ python3 scripts/media_metainfo.py --exiftool "/可信路径/exiftool" precheck "
 
 ## 3. 快速开始
 
+### 指定图片，列出元信息（只读）
+
+直接对Agent说：“列出 `/素材/图片.jpg` 的元信息，不修改文件。”也可附上原图，请Agent读取可访问的本地文件。截图不能代替原文件的EXIF等信息。
+
+```bash
+python3 scripts/media_metainfo.py inspect "/素材/图片.jpg"
+# 如需保存完整结果，指定尚不存在的报告文件
+python3 scripts/media_metainfo.py inspect "/素材/图片.jpg" --report "./image-info.json"
+```
+
+Windows将python3换为 `py -3` 或python。只读查看需要Python与ExifTool，无需填写 `config/metadata.json`，无需修改确认或内容分类。
+
+Agent按“字段／值”列出文件信息及实际读取到的尺寸、格式、方向、颜色、DPI、标题、描述、作者、关键词、来源、版权、相机、镜头、拍摄时间和GPS等；保留标签名及分组以便核对。JSON中的 `metadata` 为本工具映射的描述性字段，`raw_metadata` 为ExifTool读取的原始标签，并非只有可修改的字段才能查看。要求“全部元信息”时完整展示原始标签，过长时分段或提供完整报告。
+
+未返回的字段说明“未读取到”；依赖缺失或解析失败时说明读取不完整，不把空值当成没有元数据。只读命令不改动原图，不生成修改副本或旁车；只有显式提供report才保存报告。展示结果后结束，不自动进入修改流程。目录及多文件同样可用inspect，最多512个。
+
 ### 单文件与目录批量
 
 ```bash
