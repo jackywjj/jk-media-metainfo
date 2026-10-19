@@ -53,6 +53,22 @@
 
 将整个目录（包括 scripts、references、agents）放入宿主文档规定的 Skill 目录，或在会话中提供 `SKILL.md` 的绝对路径。各宿主的自动发现位置不同，不猜测或修改其全局配置。
 
+### 安装本 Skill
+
+仓库：[jackywjj/jk-media-metainfo](https://github.com/jackywjj/jk-media-metainfo)。下载仓库ZIP并解压，或使用已安装的Git获取：
+
+```bash
+git clone https://github.com/jackywjj/jk-media-metainfo.git
+```
+
+确保最终结构为 `jk-media-metainfo/SKILL.md`、`scripts/`、`references/`、`config/` 等，不能只复制SKILL.md，也不要多嵌套一层同名目录。
+
+- **Codex**：可直接在对话中要求“安装这个仓库的Skill：https://github.com/jackywjj/jk-media-metainfo ，安装后读取SKILL.md并执行环境预检”。本机已有Skill安装器时由Agent使用；也可提供解压后SKILL.md的绝对路径，先在当前会话使用。
+- **Claude Code**：将整个目录放到用户级 `~/.claude/skills/jk-media-metainfo/`（Windows为 `%USERPROFILE%\.claude\skills\jk-media-metainfo\`），或项目级 `.claude/skills/jk-media-metainfo/`。新会话可输入 `/jk-media-metainfo`。[官方安装位置说明](https://code.claude.com/docs/en/skills)。
+- **WorkBuddy**：在对话中提供仓库链接或解压后的完整目录，要求“将此Skill安装并启用，保留完整脚本与配置模板，安装后执行环境预检”。按当前版本的技能管理入口检查是否启用；未识别时直接提供SKILL.md绝对路径。[官方技能指南](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market)。
+
+已有同名安装时先保留旧版本及个人 `config/metadata.json`，不要直接覆盖；安装后让Agent报告实际安装目录。新会话验证能找到 `jk-media-metainfo`，且可读取其脚本与配置模板。提供路径使用只代表当前会话可用，不等于已全局安装。
+
 **安装完成后，安装 Agent 必须立即运行一次 `doctor`，展示版本、缺失工具和可用能力；首次使用、更换 Python 或升级工具后再运行。** 普通文件复制没有通用安装钩子，手动安装者应执行下列命令；只有实际运行过才能报告预检完成。
 
 ```bash
@@ -279,6 +295,53 @@ python3 scripts/media_metainfo.py apply "./我的修改.json" --report "./我的
 
 ## 6. 配置文件使用
 
+### 固定配置的位置
+
+以下 `SKILL_DIR` 指**实际安装目录**，不是素材目录或当前终端目录。
+
+| 文件 | 作用 | 是否自定义 |
+|---|---|---|
+| `SKILL_DIR/config/metadata.example.json` | 随Skill提交的基础模板 | 建议保留原样，复制后修改 |
+| `SKILL_DIR/config/metadata.json` | 个人固定配置，每次复用的字段与本次输入 | 可以；已被.gitignore忽略，不提交个人路径和来源信息 |
+| `SKILL_DIR/examples/metadata.json` | 已有单张插画的完整教学示例 | 参考用，不作为默认配置 |
+| `SKILL_DIR/scripts/exiftool-jk.config` | 固定的ExifTool命名空间与安全配置 | 不替换、不填写个人内容，不接受外部Perl配置 |
+
+安装／首次使用时，若个人固定配置不存在，让Agent从模板复制为 `config/metadata.json`；若已存在则保留，不覆盖。模板含占位路径，不能直接用于实际写入。
+
+macOS/Linux，在Skill目录执行：
+
+```bash
+# 仅在目标文件不存在时复制
+cp -n config/metadata.example.json config/metadata.json
+```
+
+Windows PowerShell，在Skill目录执行：
+
+```powershell
+if (-not (Test-Path "config/metadata.json")) {
+    Copy-Item "config/metadata.example.json" "config/metadata.json"
+}
+```
+
+### 自定义并复用固定配置
+
+1. 编辑 `config/metadata.json` 的 `set`，填写固定作者、版权、来源、项目及关键词等；不需要的键直接从配置中移除，表示保留媒体现值。需要清除媒体字段时把键名写进 `remove`，不能用空字符串冒充删除。
+2. 每次任务更新 `inputs`（文件或目录）和 `output_dir`，推荐素材使用绝对路径。相对路径始终基于 **config目录**，因此模板中的 `../output` 指Skill根目录下的output。Windows JSON路径使用 `C:/素材/图片.jpg` 或双反斜杠，不用单反斜杠。
+3. 根据本批 `precheck` 结果填写 `per_file`：每个文件的path、类别、人物范围、依据、当前SHA256。固定的公共字段可以复用，旧文件审阅记录不能套到新文件；单文件可使用顶层review。
+4. 告诉Agent：“使用已安装 jk-media-metainfo 的固定配置 config/metadata.json 处理本批素材。先列出完整修改清单，等我确认后执行。”用户本次明确要求优先；有冲突时更新配置并在清单中列明，不默默使用旧值。Skill作者Jacky不会自动成为媒体作者。
+5. 确认后写入并读回。再次运行前换新的输出目录，避免与已有结果重名。
+
+CLI始终显式传入配置路径，**脚本不会自动搜索、加载或合并固定配置**。Agent未收到其他配置路径时，优先检查上述固定位置；若用户指定了其他JSON，只使用用户指定文件。
+
+```bash
+python3 scripts/media_metainfo.py precheck "/素材目录" --report "./precheck.json"
+python3 scripts/media_metainfo.py plan "./config/metadata.json" --report "./plan.json"
+# 阅读完整清单并确认后，再执行下一条
+python3 scripts/media_metainfo.py apply "./config/metadata.json" --report "./apply.json"
+```
+
+Windows将python3替换为 `py -3` 或当前环境的python。示例报告名已存在时请更换；程序不会覆盖。升级或重新安装前单独备份个人固定配置，升级后恢复并核对字段兼容性，不直接把新模板覆盖个人配置。
+
 ### 完整结构
 
 ```json
@@ -449,6 +512,9 @@ python3 scripts/media_metainfo.py apply "./我的修改.json" --report "./我的
 jk-media-metainfo/
 ├── SKILL.md
 ├── README.md
+├── config/
+│   ├── metadata.example.json  # 提交的模板
+│   └── metadata.json          # 本地个人配置，不提交
 ├── agents/openai.yaml
 ├── scripts/
 │   ├── media_metainfo.py

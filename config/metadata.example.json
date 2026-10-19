@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "inputs": [
+    "/替换为本机素材文件或目录的绝对路径"
+  ],
+  "output_dir": "../output",
+  "storage": "embedded",
+  "set": {
+    "creator": [
+      "替换为媒体实际创作者"
+    ],
+    "keywords": [
+      "替换为你的关键词"
+    ]
+  },
+  "remove": [],
+  "per_file": []
+}

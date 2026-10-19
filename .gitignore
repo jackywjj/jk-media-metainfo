@@ -30,3 +30,5 @@ htmlcov/
 *.swp
 *.swo
 /IMPLEMENTATION-STATUS.md
+# Personal metadata configuration; keep the distributable template
+/config/metadata.json

@@ -5,6 +5,10 @@ description: "修改图片或视频文件的元数据。用户提出修改/设�
 
 # JK Media Metainfo
 
+作者：Jacky · 邮箱：[ecstorm@gmail.com](mailto:ecstorm@gmail.com)
+
+以上为 Skill 作者信息，不作为待处理媒体的默认作者或版权信息。
+
 使用本目录 `scripts/media_metainfo.py` 进行确定性读写。先阅读 [README](README.md) 的快速开始及内容预检规则；按需要读取 [字段映射](references/fields.md)、[格式边界](references/formats.md)、[工具来源与安全](references/tools.md)。不要重新用临时脚本或生图工具改写媒体。
 
 ## 目的与触发词
@@ -12,6 +16,10 @@ description: "修改图片或视频文件的元数据。用户提出修改/设�
 本 Skill 的主要目的是**修改媒体文件的描述性元数据**；内容预检是写入前的保护步骤。
 
 典型请求：“修改这张图片的元数据”“批量修改这个目录的视频 metadata”“设置图片作者和版权”“补充视频标题、描述、来源链接”“清除这些图片的关键词”。EXIF/XMP/IPTC 请求也应触发，但只处理本工具允许的描述性字段；拍摄时间、GPS等受保护技术字段需说明不支持，不能承诺修改。
+
+## 固定配置
+
+模板为本Skill目录的 `config/metadata.example.json`，个人固定配置为 `config/metadata.json`。安装／首次使用时缺少个人配置则复制模板，已有配置必须保留；按用户提供的信息填写，不能把模板占位值用于写入。个人配置不提交仓库。用户指定其他JSON时只使用该文件；否则优先检查固定配置，合并本次明确要求后展示完整清单待确认。固定公共字段可复用，inputs、输出目录及逐文件SHA256审阅须按本次素材更新。相对路径基于config目录；CLI必须显式传入配置路径，没有自动加载或合并机制。详细位置、Windows路径及自定义步骤见 [README配置指南](README.md#6-配置文件使用)。`scripts/exiftool-jk.config` 是工具安全配置，不是用户配置，禁止替换。
 
 ## 执行顺序
 
