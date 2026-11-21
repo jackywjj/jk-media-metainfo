@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "inputs": ["../media/lesson-01.mp3", "../media/lesson-02.mp3"],
+  "output_dir": "../output/mp3-batch",
+  "storage": "embedded",
+  "set": {
+    "creator": ["替换为本批音频实际创作者"],
+    "rights": "替换为本批真实、已确认的版权说明",
+    "keywords": ["示例关键词"],
+    "project": "示例音频项目"
+  },
+  "remove": [],
+  "per_file": [
+    {
+      "path": "../media/lesson-01.mp3",
+      "set": {
+        "title": "第一讲：示例标题",
+        "description": "替换为第一段音频的实际内容介绍。"
+      },
+      "review": {
+        "kind": "audio",
+        "people_scope": "none",
+        "basis": "user",
+        "evidence": "示例占位：替换为第一段音频实际的用户来源说明。",
+        "input_sha256": "替换为lesson-01.mp3本次precheck返回的input_sha256"
+      }
+    },
+    {
+      "path": "../media/lesson-02.mp3",
+      "set": {
+        "title": "第二讲：示例标题",
+        "description": "替换为第二段音频的实际内容介绍。"
+      },
+      "review": {
+        "kind": "audio",
+        "people_scope": "none",
+        "basis": "user",
+        "evidence": "示例占位：替换为第二段音频实际的用户来源说明。",
+        "input_sha256": "替换为lesson-02.mp3本次precheck返回的input_sha256"
+      }
+    }
+  ]
+}

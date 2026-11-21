@@ -9,6 +9,7 @@
 | ExifTool | 读取元数据，写入图片与MP4/MOV的描述字段 | https://exiftool.org/ ，https://github.com/exiftool/exiftool ；按Perl许可条款，具体以发行包LICENSE为准 |
 | ffprobe（FFmpeg） | 视频只读检查和逐包哈希 | https://ffmpeg.org/ ；LGPL/GPL取决于构建，https://ffmpeg.org/legal.html |
 | MKVToolNix | 提取与写入MKV标签 | https://mkvtoolnix.download/ ；GPL，核对具体发行包 |
+| Mutagen 1.47+ | MP3 ID3读写、音频参数及标签保护校验 | https://mutagen.readthedocs.io/ 、https://pypi.org/project/mutagen/ ；GPL-2.0-or-later，核对发行包LICENSE |
 | Pillow | 图片逐帧解码及像素校验 | https://pillow.readthedocs.io/ ，https://github.com/python-pillow/Pillow ；核对发行包LICENSE |
 
 免费、开源不等于没有漏洞。安装时核验实际版本、维护状态、安全公告、发行源及可用的签名/校验值，不下载来源不明的整合包，不使用 `curl | sh`。
@@ -18,6 +19,7 @@
 - macOS：优先已有版本；Homebrew中 `exiftool`、`ffmpeg`、`mkvtoolnix` 按需安装。Apple Silicon、Intel分别使用本机可信工具，不硬编码 `/opt/homebrew`。
 - Windows：ExifTool官方Windows包（保留随包依赖）、MKVToolNix官方包。FFmpeg从官网链接的Windows构建获取并核对来源。使用 `python` 或 `py -3`。
 - Linux：优先发行版签名仓库。Debian/Ubuntu常见包名为 `libimage-exiftool-perl`、`ffmpeg`、`mkvtoolnix`；其他发行版以本地仓库为准。不要把其他系统的包名当成通用命令。
+- Mutagen按实际执行脚本的Python环境安装（`python -m pip install "mutagen>=1.47"`），建议独立虚拟环境。读取ID3时禁用自动版本转换，不自动把旧标签转换为v2.4。
 - Pillow按当前Python环境安装；建议使用虚拟环境，避免修改系统Python。
 
 运行 `doctor` 只检查，不安装。不在PATH中的工具可用主命令选项 `--exiftool`、`--ffprobe`、`--mkvextract`、`--mkvpropedit` 指定可信绝对路径；选项放在子命令前。ExifTool路径应为可直接执行的程序；Windows按官方包说明准备exiftool.exe。
@@ -42,4 +44,4 @@ MKV标签XML保留数据但不加载外部实体；拒绝实体声明及未知DT
 
 ## 版本基线
 
-Python 3.10+；ExifTool 13.0+；Pillow 10.4+；FFmpeg/ffprobe 6.0+；MKVToolNix 80.0+。用途和按能力依赖见 [README](../README.md#第三方工具与版本要求)。这是兼容基线，不代表安全背书；使用可信来源的维护版本。安装后立即运行 doctor；缺少任务依赖时由Agent安装，再运行doctor复检。
+MP3需Mutagen 1.47+；Python 3.10+；ExifTool 13.0+；Pillow 10.4+；FFmpeg/ffprobe 6.0+；MKVToolNix 80.0+。用途和按能力依赖见 [README](../README.md#第三方工具与版本要求)。这是兼容基线，不代表安全背书；使用可信来源的维护版本。安装后立即运行 doctor；缺少任务依赖时由Agent安装，再运行doctor复检。

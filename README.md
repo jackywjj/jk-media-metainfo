@@ -1,6 +1,6 @@
 # JK Media Metainfo
 
-修改图片与视频的描述性元数据：先预检，列出完整修改清单，经用户确认后写入。
+查看与修改图片、视频和MP3音频的描述性元数据：先预检，列出完整修改清单，经用户确认后写入。
 
 这个Skill用于维护标题、描述、创作者、来源网址、署名、许可、系列、项目和素材编号等信息。你可以用自然语言交互，也可以提供JSON配置。AI帮助理解要求和查看画面，实际写入由本地开源工具完成。
 
@@ -21,6 +21,15 @@
 
 ## 1. 适用范围与保护边界
 
+### 这个 Skill 能做什么
+
+- **查看元信息**：指定文件，列出格式、尺寸或音频参数、作者、版权、关键词，以及工具实际读到的EXIF、XMP、IPTC、ID3等标签。只读查看不要求修改确认。
+- **补充、修改、清除字段**：管理标题、描述、作者、关键词、来源链接、版权、许可、项目、系列、素材编号等白名单字段；未指定字段保留，不支持任意标签擦除。
+- **批量归档**：处理指定文件、多文件或目录当前层，图片、视频和MP3合计每批最多512个，串行执行。
+- **复用固定配置**：将常用署名、版权、项目等放入 `config/metadata.json`，每批更新素材路径和审阅记录。
+- **确认后写入并核验**：列出完整修改清单，用户确认后写入独立副本并读回，检查内容及未指定标签，保留原文件。
+- **保存配套JSON**：不能或不希望嵌入时，显式选择sidecar保存外部记录。它不会改变原文件内的元数据，包含待设置／删除字段及原件SHA256；不是完整原标签备份。
+
 | 可编辑 | 保护范围 |
 |---|---|
 | 标题、描述、图注、关键词 | 图片像素、画面方向、颜色、透明通道、动画帧 |
@@ -32,16 +41,36 @@
 
 “只改元数据”不是“整个文件字节不变”。元数据本来就是文件的一部分，写入后文件大小和完整文件SHA256可以变化，视频容器的总平均码率也可能受文件大小影响；媒体内容和受保护的技术属性须保持不变。
 
-### 当前格式支持
+### 支持的媒体类型与写入方式
 
-| 格式 | 默认处理方式 |
-|---|---|
-| JPEG、PNG、TIFF、WebP、GIF | ExifTool写入副本；Pillow逐帧内容校验 |
-| MP4、MOV、M4V | ExifTool写入副本；ffprobe核对全部轨道和逐包数据 |
-| MKV | MKVToolNix标签编辑；ffprobe核验；保留其他标签 |
-| HEIC、HEIF、AVIF、WebM、AVI、WMV、其他 | 当前仅显式选择旁车JSON |
+“直接修改”指将字段**嵌入媒体的独立副本**，始终保留原件；不是覆盖原件。所有已接入格式都可以显式选择配套JSON。
 
-支持嵌入不代表所有字段都能出现在系统“文件属性”或播放器界面；最终以本工具读回为准。详见 [格式能力与校验方法](references/formats.md)。
+| 类型 | 格式／扩展名 | 可直接修改媒体副本内的元数据 | 仅保存配套JSON的情况 |
+|---|---|---|---|
+| 常见图片与动图 | JPG/JPEG、PNG、TIF/TIFF、WebP、GIF | 是；ExifTool写入，Pillow逐帧核验 | 用户选择sidecar，或存在签名等限制 |
+| 常见视频 | MP4、MOV、M4V | 是；ExifTool写入，ffprobe完整核验 | 用户选择sidecar，或存在签名等限制 |
+| MKV视频 | MKV | 是；MKVToolNix编辑标签，ffprobe核验 | 用户选择sidecar，或存在签名等限制 |
+| MP3音频 | MP3 | 是；仅ID3v2.4或无标签文件，Mutagen写入并核验音频字节与其他标签 | 旧版ID3v2.2/v2.3、含ID3v1尾标签、特殊ID3头标志、签名文件，或用户选择sidecar |
+| 其他已接入图片 | HEIC、HEIF、AVIF | **否** | **当前只能显式选择sidecar** |
+| 其他已接入视频 | WebM、AVI、WMV | **否** | **当前只能显式选择sidecar** |
+
+未列出的扩展名当前不接入，包括WAV、FLAC、M4A、AAC、OGG、相机RAW、PDF和Office文档，不会因为“保存JSON”就自动支持。目录扫描按扩展名筛选，实际解析成功才可处理。
+
+配套JSON与内嵌字段是两种不同产物：配套文件通常名为 `原文件名.metadata.json`，播放器不会因此显示更新后的标签。嵌入失败也不会静默改成JSON，需用户明确选择并确认新清单。
+
+支持嵌入不代表所有字段都能出现在系统属性或播放器中，最终以读回与内容核验为准。格式支持是代码能力范围，并非每种编码、系统均已实测。详见 [格式能力与校验方法](references/formats.md)。
+
+### MP3 的使用与边界
+
+配置与完整操作步骤见 [MP3查看、修改与批量处理](#mp3查看修改与批量处理)。
+
+示例：“列出 `/素材/讲解.mp3` 的元信息”；“将这段MP3标题改为‘第一讲’，创作者设为我提供的姓名，先列清单让我确认”。批量目录与固定JSON配置沿用相同流程。
+
+- `title` 写ID3 TIT2，`creator` 写TPE1（创作者／艺人），`description` 写英文语言码、空描述的COMM评论，`rights` 写TCOP。其他白名单字段存入 `TXXX:JK_METAINFO` JSON标签，由本工具读回，播放器未必展示。
+- 不新增专辑、曲目、歌词或封面编辑接口，不推断说话人身份。已有封面、章节、回放增益及未指定标签保留并校验。
+- MP3的 `review` 使用 `kind: "audio"`、`people_scope: "none"`，填写用户／来源依据及本文件当前SHA256。它表示音频媒介，不证明声音真实或非AI；不要求观看画面，也不把声音中的人写成“画面中的真人”或摄影师。
+- 仅直接写入无标签或ID3v2.4且没有ID3v1尾标签的MP3；旧版标签不自动升级，需显式选择sidecar。损坏文件或保护检查失败会拒绝，不能承诺所有MP3结构都可写。
+- Mutagen写入ID3，不重编码；对ID3v2标签之外的全部字节计算SHA256，另核对音频参数、未修改ID3帧及自定义字段。字节或标签意外变化则报告失败。
 
 ## 2. 工具与安装
 
@@ -88,7 +117,16 @@ Windows PowerShell 使用 `py -3 scripts/media_metainfo.py doctor`（或 `python
 | Pillow | 10.4 | 图片嵌入后的逐帧校验；安装与 Python 匹配的版本 |
 | ffprobe（FFmpeg） | 6.0 | 视频嵌入后的完整数据核验 |
 | ffmpeg（FFmpeg） | 6.0 | 可选，仅抽取视频预览帧 |
+| Mutagen | 1.47 | MP3 ID3读回、嵌入及音频保护核验 |
 | mkvextract、mkvpropedit（MKVToolNix） | 80.0 | MKV 嵌入 |
+
+MP3嵌入另需在实际执行脚本的同一Python环境安装Mutagen，无需Pillow或FFmpeg；完整元数据预检仍需ExifTool：
+
+```bash
+python3 -m pip install "mutagen>=1.47"
+```
+
+建议先创建虚拟环境并使用其解释器；Windows使用该环境的python或 `py -3`。来源：[Mutagen官方文档](https://mutagen.readthedocs.io/en/latest/)、[官方PyPI包](https://pypi.org/project/mutagen/)。Mutagen默认可能转换ID3版本，本工具显式禁用自动转换，限制写入范围并做保护校验，参见 [ID3版本说明](https://mutagen.readthedocs.io/en/latest/user/id3.html)。
 
 `doctor` 命令本身只检查，不安装、不联网、不修改配置。Agent发现缺少本次任务所需软件时，应自行按下述可信渠道安装；低于基线时更新，版本未知先查明。只安装所需组件，Pillow优先放在独立虚拟环境。安装后使用同一Python和工具路径重跑doctor，确认相应能力满足再继续。Python缺失时先安装Python。遇到管理员权限或宿主审批，按实际要求申请；失败时说明原因，不绕过权限。发现已知漏洞或可疑来源应提醒用户，并选择可信的修复版本。旁车可在仅有 Python 时使用，但缺少 ExifTool 的元数据检查仍不完整。
 
@@ -162,7 +200,7 @@ python3 scripts/media_metainfo.py precheck "/素材目录" --report "./batch-pre
 python3 scripts/media_metainfo.py precheck "/素材/01.jpg" "/素材/02.mp4"
 ```
 
-目录会筛选已支持扩展名的图片和视频（含大写扩展名），忽略其他文件与子目录。配置 `inputs` 同样可写目录，例如 `"inputs": ["./media"]`。预检报告包含每个文件的 SHA256，配置仍须在 `per_file` 中逐个绑定内容审阅记录；不会用一个文件的审阅代替整批。
+目录会筛选已支持扩展名的图片、视频和MP3（含大写扩展名），忽略其他文件与子目录。配置 `inputs` 同样可写目录，例如 `"inputs": ["./media"]`。预检报告包含每个文件的 SHA256，配置仍须在 `per_file` 中逐个绑定内容审阅记录；不会用一个文件的审阅代替整批。
 
 **单批硬上限512个文件，串行处理。** 发现第513个即拒绝整批，在读取媒体内容或写入前停止，不静默截取，也不自动发起下一批。超限请明确拆分输入；目录内容变化可能导致 apply 重新计划时拒绝。512是数量限制，不能保证超大视频或复杂动画不会耗尽资源；保留工具超时和失败停止策略。重复输入与输出同名仍会拒绝。终端 `interactive` 保持单文件；Agent 可根据批量预检生成配置。
 
@@ -174,7 +212,7 @@ python3 scripts/media_metainfo.py precheck "/素材目录/图片.png" --report "
 
 输出包括：
 
-- 原文件SHA256、大小、图片／视频类型。
+- 原文件SHA256、大小、图片／视频／MP3类型。
 - 当前描述性字段及工具可读取的原始元数据。
 - 已有AI来源声明或提示词线索；它们可能是写入者声明，不是鉴定结论。
 - 是否检测到来源凭证标识；依赖缺失时显示未知。
@@ -231,6 +269,7 @@ python3 scripts/media_metainfo.py apply "./metadata.json" --report "./apply-repo
 | illustration | 动漫、卡通、手绘、插画、虚构人物表现 | 角色写fictional_characters，不写真人身份 |
 | mixed | 真照片与AI、插画或其他素材混合，或真假对照图 | 整张按受限素材处理；来源作者写source_credits |
 | non_person | 没有人物的素材，且未作为真实拍摄分类 | 不写画面中的真人 |
+| audio | MP3音频，按用户／来源说明审阅；不判定真假声音 | people_scope=none，不使用画面人物／摄影师字段 |
 | unknown | 证据不足，尚未完成分类 | 阻断写入，先补充依据 |
 
 `people_scope` 必须另外填写：`real`（真实拍摄的人）、`fictional`（虚构／合成人物）、`mixed`（混合）、`none`（无人物）、`unknown`（未知）。
@@ -276,7 +315,7 @@ python3 scripts/media_metainfo.py apply "./metadata.json" --report "./apply-repo
 
 ### 触发词与示例
 
-使用“修改图片／视频元数据”“批量设置 metadata”“修改 EXIF／XMP／IPTC”“设置作者、版权、来源、标题、描述、关键词”“清除指定元数据”等表达即可触发。主要目的为修改元数据，内容预检是保护步骤；只读查看也可使用。技术字段如GPS、拍摄时间不在可修改范围。
+使用“修改图片／视频／MP3元数据”“批量设置 metadata”“修改 EXIF／XMP／IPTC”“设置作者、版权、来源、标题、描述、关键词”“清除指定元数据”等表达即可触发。主要目的为修改元数据，内容预检是保护步骤；只读查看也可使用。技术字段如GPS、拍摄时间不在可修改范围。
 
 ### 在 WorkBuddy、Codex、Claude Code 中使用
 
@@ -412,7 +451,7 @@ Windows将python3替换为 `py -3` 或当前环境的python。示例报告名已
 | 配置项 | 规则 |
 |---|---|
 | version | 当前为1 |
-| inputs | 本地图片／视频文件或目录的列表；目录只扫描当前层，不递归、不展开通配符；合计最多512个媒体文件 |
+| inputs | 本地图片／视频／MP3文件或目录的列表；目录只扫描当前层，不递归、不展开通配符；合计最多512个媒体文件 |
 | output_dir | 独立输出目录 |
 | storage | embedded嵌入副本；sidecar仅生成JSON |
 | set | 所有文件通用的字段 |
@@ -475,6 +514,72 @@ Windows将python3替换为 `py -3` 或当前环境的python。示例报告名已
 旁车文件保存原件SHA256、预检记录和修改意图。它**不会改变媒体内部已有字段**，例如sidecar中的remove不能清除图片本身的错误真人信息。分享媒体时要一起传递旁车文件，接收软件也未必自动识别。
 
 没有ExifTool时，读取报告会标记预检不完整。旁车可保存用户审阅后的记录，但不能声称已排除图片内的AI标识、真人字段或来源凭证。
+
+### MP3查看、修改与批量处理
+
+提供两份可复制的配置示例：
+
+- [examples/mp3-metadata.json](examples/mp3-metadata.json)：单文件，演示标题、创作者、描述、版权、关键词和项目字段。
+- [examples/mp3-batch-metadata.json](examples/mp3-batch-metadata.json)：两文件，演示公共字段与逐文件标题、描述、SHA256审阅。
+
+示例中的路径、署名、版权与审阅内容都是占位值。使用前复制并替换，不能原样用于真实媒体；不要把Skill作者自动填成媒体作者。以下命令在Skill根目录执行，并使用安装了Mutagen的同一Python环境；Windows把 `python3` 换成该环境的 `python` 或 `py -3`。先运行 `doctor`，确认ExifTool及Mutagen满足版本基线。
+
+#### 查看与只读预检
+
+```bash
+python3 scripts/media_metainfo.py doctor
+python3 scripts/media_metainfo.py inspect "/素材/lesson-01.mp3"
+python3 scripts/media_metainfo.py precheck "/素材/lesson-01.mp3" --report "./mp3-precheck.json"
+```
+
+`inspect`列出现有标签，`precheck`还提供用于填写配置的审阅模板与 `input_sha256`。两者都不修改原件；`--report`保存完整JSON报告，路径必须尚不存在。播放软件未展示的自定义标签也可用本工具读回。
+
+也可对Agent说：“查看 `/素材/lesson-01.mp3` 的全部元数据，不修改文件。”
+
+#### 修改单个MP3
+
+1. 将 `examples/mp3-metadata.json` 复制为个人固定配置 `config/metadata.json`（已存在则先保留，或另存为本次任务配置）。复制到其他目录后必须调整相对路径：**所有路径以配置所在目录为基准**。例如同为Skill下的examples和config，`../media/lesson-01.mp3` 均指Skill根目录下的media文件夹；也可直接改为本机绝对路径。
+2. 修改 `inputs` 为实际MP3路径，`output_dir` 为新的输出目录，填写真实的 `set` 字段。删除不需要修改的配置键表示保留原字段；确实要清除字段时写入 `remove`，例如 `"remove": ["keywords"]`，同时从 `set` 中移除keywords，不能同时设置和删除。
+3. 将本文件预检返回的 `input_sha256` 填入review，更新实际依据；保持 `kind: "audio"`、`people_scope: "none"`。输入内容变化后必须重新预检，不能复用旧SHA256。
+4. 运行plan，展示全部字段的当前值、修改操作、目标值及输出位置；无阻断项并经用户明确确认后，再运行apply。
+
+```bash
+python3 scripts/media_metainfo.py plan "./config/metadata.json" --report "./mp3-plan.json"
+# 展示完整修改清单，等待用户确认后执行
+python3 scripts/media_metainfo.py apply "./config/metadata.json" --report "./mp3-apply.json"
+```
+
+成功时报告 `embedded_verified`。按输出报告给出的实际路径运行inspect核对；若沿用示例输出目录，则为：
+
+```bash
+python3 scripts/media_metainfo.py inspect "./output/mp3-single/lesson-01.mp3"
+```
+
+也可对Agent说：“使用 `examples/mp3-metadata.json` 作为模板，修改这段MP3的标题与作者。补齐真实路径和审阅记录，列清单让我确认后生成副本。”CLI的apply不会弹出确认，手动使用时同样先核对清单再执行。
+
+#### 批量处理MP3
+
+从 `examples/mp3-batch-metadata.json` 复制到 `config/metadata.json` 或其他本次配置文件，保留已有个人配置。先逐文件预检：
+
+```bash
+python3 scripts/media_metainfo.py precheck "/素材/lesson-01.mp3" "/素材/lesson-02.mp3" --report "./mp3-batch-precheck.json"
+```
+
+将实际文件列表写入inputs；公共creator、rights等填在顶层set，不同标题和描述填在 `per_file[].set`，每个 `per_file[].review` 绑定本文件SHA256。per_file.path必须与实际输入文件对应。完成后使用上面的plan／确认／apply流程，换用新的批次报告名。
+
+也可将inputs改成目录，例如 `"inputs": ["/素材/音频目录"]`，并运行目录预检：
+
+```bash
+python3 scripts/media_metainfo.py precheck "/素材/音频目录" --report "./mp3-directory-precheck.json"
+```
+
+目录只扫描当前层，**没有仅限MP3的筛选选项**：其中已支持的图片、视频也会被纳入。仅处理MP3时，使用只含MP3的目录或明确列出MP3文件。整批合计最多512个文件，超限整批拒绝。每个实际文件都必须有对应review，不能只保留示例中的两条审阅记录，不能把第一段音频的SHA256套给整批。
+
+Agent示例：“批量整理 `/素材/音频目录` 中的MP3，作者使用我提供的姓名，每个文件保留独立标题。先列出文件范围和全部字段，等我确认后执行。”若目录内容变化，重新预检并更新确认清单；重复执行时使用新输出目录，防止结果重名。
+
+#### 仅保存配套JSON
+
+遇到旧版ID3、ID3v1尾标签、特殊结构或签名导致嵌入被拒绝时，先说明原因。用户明确选择并确认后，将配置中的 `storage` 改为 `"sidecar"`，重新plan并按确认流程apply。输出如 `lesson-01.mp3.metadata.json`，报告 `sidecar_saved`；原MP3内部标签不会改变，播放器显示也不会更新。不要把这种结果描述为“MP3标签已修改”。
 
 ## 8. 输出与失败处理
 
@@ -540,10 +645,12 @@ jk-media-metainfo/
 │   ├── formats.md
 │   └── tools.md
 └── examples/
-    └── metadata.json
+    ├── metadata.json
+    ├── mp3-metadata.json
+    └── mp3-batch-metadata.json
 ```
 
-当前版本：0.2.0。本Skill在本项目目录维护，通过路径使用，不自动安装全局副本。Python负责参数和安全规则，ExifTool/MKVToolNix负责写入，Pillow/ffprobe负责保护核验。
+当前版本：0.3.0。本Skill在本项目目录维护，通过路径使用，不自动安装全局副本。Python负责参数和安全规则，ExifTool/MKVToolNix负责写入，Pillow/ffprobe负责保护核验。
 
 当前机器为macOS Apple Silicon。具体依赖是否可用以doctor为准；Windows/Linux安装方案不代表已经在这两种系统运行验证。实际完成的本地使用记录另见 `IMPLEMENTATION-STATUS.md`，不要把代码中声明的能力当作所有格式已实测。
 

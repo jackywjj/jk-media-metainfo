@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Local, allowlisted descriptive metadata editing. Never shell out through a shell."""
 import argparse
+import copy
+import io
 import datetime as dt
 import hashlib
 import json
@@ -15,14 +17,18 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 BASE = pathlib.Path(__file__).resolve().parent
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 MAX_FILES = 512
-MIN_VERSIONS = {'python': (3, 10), 'Pillow': (10, 4), 'exiftool': (13, 0),
+MIN_VERSIONS = {'python': (3, 10), 'Pillow': (10, 4), 'mutagen': (1, 47), 'exiftool': (13, 0),
                 'ffprobe': (6, 0), 'ffmpeg': (6, 0), 'mkvextract': (80, 0), 'mkvpropedit': (80, 0)}
-KINDS = {'photo', 'ai_generated', 'illustration', 'mixed', 'non_person', 'unknown'}
+KINDS = {'photo', 'ai_generated', 'illustration', 'mixed', 'non_person', 'audio', 'unknown'}
 SCOPES = {'real', 'fictional', 'mixed', 'none', 'unknown'}
 IMAGE_EXT = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp', '.gif', '.heic', '.heif', '.avif'}
 VIDEO_EXT = {'.mp4', '.mov', '.mkv', '.webm', '.avi', '.wmv', '.m4v'}
+AUDIO_EXT = {'.mp3'}
+MP3_TAGS = {'title': 'TIT2', 'creator': 'TPE1', 'rights': 'TCOP',
+            'description': 'COMM::eng'}
+MP3_CUSTOM = 'TXXX:JK_METAINFO'
 EMBED_IMAGE = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp', '.gif'}
 # (ExifTool tag, value type). Custom fields use only the fixed local config.
 FIELDS = {
@@ -118,6 +124,8 @@ def media_type(path):
         return 'image'
     if path.suffix.lower() in VIDEO_EXT:
         return 'video'
+    if path.suffix.lower() in AUDIO_EXT:
+        return 'audio'
     return 'other'
 
 
@@ -131,7 +139,7 @@ def expand_inputs(values):
         for candidate in candidates:
             if not candidate.is_file() or media_type(candidate) == 'other':
                 if not path.is_dir():
-                    raise Refused('输入必须为支持的图片或视频文件。')
+                    raise Refused('输入必须为支持的图片、视频或MP3文件。')
                 continue
             resolved = candidate.resolve()
             if resolved in seen:
@@ -141,8 +149,102 @@ def expand_inputs(values):
             if len(files) > MAX_FILES:
                 raise Refused('单批最多512个媒体文件；本批未开始处理，请拆分输入。')
     if not files:
-        raise Refused('输入中没有支持的图片或视频文件。')
+        raise Refused('输入中没有支持的图片、视频或MP3文件。')
     return sorted(files, key=str)
+
+
+def mp3_tags(path, for_write=False):
+    try:
+        from mutagen.mp3 import MP3
+        from mutagen.id3 import ID3
+    except ImportError as exc:
+        raise Refused('MP3标签读取与嵌入需要mutagen>=1.47；也可显式选择sidecar。') from exc
+    try:
+        audio = MP3(path, ID3=lambda fileobj: ID3(fileobj, translate=False))
+        tags = audio.tags if audio.tags is not None else ID3()
+        if for_write:
+            if audio.tags is not None and tags.version != (2, 4, 0):
+                raise Refused('MP3嵌入仅支持ID3v2.4或无标签文件；旧版标签请使用sidecar。')
+            with pathlib.Path(path).open('rb') as handle:
+                header = handle.read(10)
+                if header[:3] == b'ID3' and header[5] != 0:
+                    raise Refused('MP3含特殊ID3头标志；为保留原结构，请使用sidecar。')
+                handle.seek(max(0, pathlib.Path(path).stat().st_size - 128))
+                if handle.read(3) == b'TAG':
+                    raise Refused('已有ID3v1尾标签；为避免自动改写，请使用sidecar。')
+        return audio, tags
+    except Refused:
+        raise
+    except Exception as exc:
+        raise Refused('无法解析MP3：' + str(exc)) from exc
+
+
+def mp3_metadata(path):
+    _, tags = mp3_tags(path)
+    normal = {}
+    if MP3_CUSTOM in tags:
+        values = tags[MP3_CUSTOM].text
+        stored = json.loads(str(values[0])) if len(values) == 1 else None
+        if not isinstance(stored, dict) or set(stored) - (set(FIELDS) - set(MP3_TAGS)):
+            raise Refused('MP3自定义元数据记录无效。')
+        normal.update(stored)
+    for field, tag in MP3_TAGS.items():
+        if tag in tags:
+            values = [str(v) for v in tags[tag].text]
+            normal[field] = values if field == 'creator' else (values[0] if len(values) == 1 else values)
+    return normal
+
+
+def mp3_content(path, changes, removed):
+    audio, tags = mp3_tags(path, for_write=True)
+    offset = tags.size if audio.tags is not None else 0
+    digest = hashlib.sha256()
+    with pathlib.Path(path).open('rb') as handle:
+        handle.seek(offset)
+        for block in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(block)
+    protected = copy.deepcopy(tags)
+    touched = set(changes) | set(removed)
+    for field in touched:
+        if field in MP3_TAGS:
+            protected.pop(MP3_TAGS[field], None)
+    if touched - set(MP3_TAGS):
+        # Untouched fields inside our shared JSON frame are compared separately.
+        metadata = mp3_metadata(path)
+        remaining = {k: v for k, v in metadata.items() if k not in touched and k not in MP3_TAGS}
+        protected.pop(MP3_CUSTOM, None)
+    else:
+        remaining = {}
+    buffer = io.BytesIO()
+    protected.save(buffer, v1=0, v2_version=4, padding=lambda _: 0)
+    return {'payload_sha256': digest.hexdigest(), 'other_tags': hashlib.sha256(buffer.getvalue()).hexdigest(),
+            'custom_fields': remaining,
+            'audio': {key: getattr(audio.info, key, None) for key in
+                      ('sample_rate', 'channels', 'length', 'bitrate', 'version', 'layer')}}
+
+
+def write_mp3(path, job):
+    from mutagen.id3 import TIT2, TPE1, TCOP, COMM, TXXX
+    _, tags = mp3_tags(path, for_write=True)
+    stored = {k: v for k, v in mp3_metadata(path).items() if k not in MP3_TAGS}
+    classes = {'title': TIT2, 'creator': TPE1, 'rights': TCOP}
+    for field in job['remove']:
+        if field in MP3_TAGS:
+            tags.pop(MP3_TAGS[field], None)
+        else:
+            stored.pop(field, None)
+    for field, value in job['set'].items():
+        if field == 'description':
+            tags.add(COMM(encoding=3, lang='eng', desc='', text=[value]))
+        elif field in classes:
+            tags.add(classes[field](encoding=3, text=value if isinstance(value, list) else [value]))
+        else:
+            stored[field] = value
+    if (set(job['set']) | set(job['remove'])) - set(MP3_TAGS):
+        tags.pop(MP3_CUSTOM, None)
+        if stored:
+            tags.add(TXXX(encoding=3, desc='JK_METAINFO', text=[json.dumps(stored, ensure_ascii=False)]))
+    tags.save(path, v1=0, v2_version=4)
 
 
 def video_info(path, args):
@@ -201,12 +303,14 @@ def video_content(path, args):
             'packets_sha256': digest.hexdigest()}
 
 
-def content_signature(path, args):
+def content_signature(path, args, changes=None, removed=None):
     kind = media_type(path)
     if kind == 'image':
         return image_content(path)
     if kind == 'video':
         return video_content(path, args)
+    if kind == 'audio':
+        return mp3_content(path, changes or {}, removed or [])
     raise Refused('不支持此格式的媒体内容校验；请选择 sidecar。')
 
 
@@ -241,6 +345,12 @@ def inspect(path, args):
     if path.suffix.lower() == '.mkv' and executable('mkvextract', args, False):
         _, stored = mkv_metadata(path, args)
         normal.update(stored)
+    if media_type(path) == 'audio':
+        try:
+            normal.update(mp3_metadata(path))
+        except Refused as exc:
+            if '需要mutagen' not in str(exc):
+                raise
     signals = []
     for key, value in raw.items():
         name = key.lower()
@@ -260,7 +370,8 @@ def inspect(path, args):
             'media_type': media_type(path), 'metadata_tool_available': bool(raw),
             'metadata': normal, 'raw_metadata': raw, 'ai_signals': signals,
             'signed_or_c2pa_detected': signed,
-            'review_template': {'kind': 'unknown', 'people_scope': 'unknown', 'basis': 'user',
+            'review_template': {'kind': 'audio' if media_type(path) == 'audio' else 'unknown',
+                                'people_scope': 'none' if media_type(path) == 'audio' else 'unknown', 'basis': 'user',
                                 'evidence': '', 'input_sha256': first_hash}}
 
 
@@ -362,6 +473,13 @@ def plan_job(job, args):
         issues.append('AI、动漫和混合画面不能声明为纯真人实拍；用fictional/mixed/none。')
     if kind == 'non_person' and scope != 'none':
         issues.append('non_person必须配people_scope=none。')
+    if data['media_type'] == 'audio':
+        if kind != 'audio' or scope != 'none':
+            issues.append('MP3使用kind=audio、people_scope=none，不能套用画面分类。')
+        if set(job['set']) & REAL_FIELDS or set(job['remove']) & set(REMOVE_ONLY):
+            issues.append('MP3不支持画面人物、摄影师或模特授权字段操作。')
+    elif kind == 'audio':
+        issues.append('audio分类仅用于MP3。')
     real_ok = kind == 'photo' and scope == 'real'
     if (not real_ok and 'depicted_real_people' in job['set'] or
             not (kind == 'photo' and scope in ('real', 'none')) and 'photographer' in job['set']):
@@ -392,6 +510,14 @@ def plan_job(job, args):
             backend = 'exiftool'
             if not executable('exiftool', args, False):
                 issues.append('缺少ExifTool写入与完整预检依赖。')
+        elif suffix == '.mp3':
+            backend = 'mutagen'
+            if not executable('exiftool', args, False):
+                issues.append('MP3完整预检需要ExifTool。')
+            try:
+                mp3_tags(job['source'], for_write=True)
+            except Refused as exc:
+                issues.append(str(exc))
         elif suffix == '.mkv':
             backend = 'mkvpropedit'
             for tool in ('mkvextract', 'mkvpropedit', 'exiftool'):
@@ -485,11 +611,13 @@ def apply_job(job, plan, args):
               'set': job['set'], 'remove': job['remove']}, dest)
         return {'source': str(src), 'output': str(dest), 'status': 'sidecar_saved',
                 'embedded': False, 'source_unchanged': sha(src) == plan['input_sha256']}
-    before_content = content_signature(src, args)
+    before_content = content_signature(src, args, job['set'], job['remove'])
     with src.open('rb') as original, dest.open('xb') as copy:
         shutil.copyfileobj(original, copy)
     if plan['backend'] == 'exiftool':
         write_exif(dest, job, args)
+    elif plan['backend'] == 'mutagen':
+        write_mp3(dest, job)
     else:
         write_mkv(dest, job, args)
     after = inspect(dest, args)
@@ -516,9 +644,13 @@ def apply_job(job, plan, args):
         if without_ours(before_xml) != without_ours(after_xml):
             raise Refused('MKV其他标签发生意外变化。')
         unexpected = [v for v in unexpected if v.startswith(('IFD', 'ExifIFD:', 'GPS:', 'XMP-'))]
+    if plan['backend'] == 'mutagen':
+        # ID3 serialization changes tag sizes; protected frames and the entire
+        # non-ID3 byte range are verified by mp3_content instead.
+        unexpected = []
     if unexpected:
         raise Refused('非目标元数据发生变化：' + ', '.join(unexpected[:20]))
-    if before_content != content_signature(dest, args):
+    if before_content != content_signature(dest, args, job['set'], job['remove']):
         raise Refused('媒体内容或受保护属性发生变化；输出副本未通过核验。')
     if sha(src) != plan['input_sha256']:
         raise Refused('原文件发生意外变化。')
@@ -546,6 +678,11 @@ def doctor(args):
         versions['Pillow'] = PIL.__version__
     except ImportError:
         versions['Pillow'] = 'missing'
+    try:
+        import mutagen
+        versions['mutagen'] = mutagen.version_string
+    except ImportError:
+        versions['mutagen'] = 'missing'
     checks = {}
     for name, minimum in MIN_VERSIONS.items():
         raw = versions.get(name, 'missing')
@@ -557,6 +694,7 @@ def doctor(args):
                     'image_embedded': base_ok and checks['Pillow']['ok'],
                     'video_embedded': base_ok and checks['ffprobe']['ok'],
                     'mkv_embedded': base_ok and all(checks[n]['ok'] for n in ('ffprobe', 'mkvextract', 'mkvpropedit')),
+                    'mp3_embedded': base_ok and checks['mutagen']['ok'],
                     'sidecar': checks['python']['ok']}
     return {'checks': checks, 'capabilities': capabilities,
             'status': 'ready' if all(capabilities.values()) else 'partial',
@@ -574,7 +712,7 @@ def interactive(args):
     data = inspect(src, args)
     dump({'current': data['metadata'], 'ai_signals': data['ai_signals'], 'review_template': data['review_template']})
     review = data['review_template']
-    review['kind'] = input('内容类别 photo/ai_generated/illustration/mixed/non_person/unknown：').strip()
+    review['kind'] = input('内容类别 photo/ai_generated/illustration/mixed/non_person/audio/unknown：').strip()
     review['people_scope'] = input('人物范围 real/fictional/mixed/none/unknown：').strip()
     review['evidence'] = input('预检依据（画面、来源或用户说明）：').strip()
     print('可用字段：' + ', '.join(FIELDS))
@@ -614,8 +752,9 @@ def main():
             results = []
             for file in files:
                 result = inspect(file, args)
-                result['visual_review_required'] = True
-                result['precheck_status'] = 'needs_visual_or_user_review' if result['metadata_tool_available'] else 'partial_missing_exiftool'
+                result['visual_review_required'] = result['media_type'] != 'audio'
+                result['precheck_status'] = ('needs_user_or_provenance_review' if result['media_type'] == 'audio'
+                                             else 'needs_visual_or_user_review') if result['metadata_tool_available'] else 'partial_missing_exiftool'
                 result['restriction'] = '未完成预检前不可添加真人身份、摄影或模特授权声明。'
                 result['note'] = 'AI标识缺失不等于实拍；本程序不提供AI生成鉴定。'
                 results.append(result)
@@ -632,7 +771,8 @@ def main():
             for job, plan in zip(jobs, plans):
                 needed = ['python']
                 if job['storage'] == 'embedded':
-                    needed += ['exiftool', 'Pillow'] if media_type(job['source']) == 'image' else ['exiftool', 'ffprobe']
+                    kind = media_type(job['source'])
+                    needed += ['exiftool', {'image': 'Pillow', 'video': 'ffprobe', 'audio': 'mutagen'}[kind]]
                     if job['source'].suffix.lower() == '.mkv':
                         needed += ['mkvextract', 'mkvpropedit']
                 for name in needed:

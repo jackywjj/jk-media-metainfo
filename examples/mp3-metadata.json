@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "inputs": ["../media/lesson-01.mp3"],
+  "output_dir": "../output/mp3-single",
+  "storage": "embedded",
+  "set": {
+    "title": "第一讲：示例音频标题",
+    "creator": ["替换为音频实际创作者"],
+    "description": "替换为本段音频的实际内容介绍。",
+    "rights": "替换为真实、已确认的版权说明",
+    "keywords": ["示例关键词"],
+    "project": "示例音频项目"
+  },
+  "remove": [],
+  "review": {
+    "kind": "audio",
+    "people_scope": "none",
+    "basis": "user",
+    "evidence": "示例占位：替换为用户实际提供的音频来源和创作者依据。",
+    "input_sha256": "替换为lesson-01.mp3本次precheck返回的input_sha256"
+  }
+}

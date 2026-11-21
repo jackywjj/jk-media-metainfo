@@ -55,3 +55,7 @@
 - 首版不编辑多语言lang-alt子项；若ExifTool触及非目标语言版本，保护核验将拒绝结果。
 
 MKV以保留原有标签的方式维护一个全局 `JK_METAINFO` JSON标签；这些信息不保证出现在每个播放器的常规“属性”面板中。读取时由本脚本还原上述统一字段。旁车记录不改变媒体内原有字段。
+
+## MP3字段映射
+
+MP3复用白名单键：title→TIT2、creator→TPE1（数组）、rights→TCOP、description→COMM（lang=eng，desc为空）。description仅修改该条评论，其他语言／描述的评论保留。其他白名单字段存于单个TXXX:JK_METAINFO JSON标签；不保证播放器显示。未指定字段、封面和其他帧受保护；不提供专辑、曲目或歌词专用字段。MP3不允许新增depicted_real_people、photographer或操作模特授权清理字段。review使用kind=audio、people_scope=none，audio表示媒介类型而非AI生成鉴定。
